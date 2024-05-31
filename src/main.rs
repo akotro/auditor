@@ -165,13 +165,16 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
 
 async fn async_watch<P: AsRef<Path>>(
     path: P,
+    stream_position: u64,
     audit_logs: &mut Vec<AuditLog>,
 ) -> notify::Result<()> {
+    println!("INFO: Starting watch");
+
     let (mut watcher, mut rx) = async_watcher()?;
 
     watcher.watch(path.as_ref(), RecursiveMode::NonRecursive)?;
 
-    let mut position: u64 = 0;
+    let mut position: u64 = stream_position;
 
     while let Some(res) = rx.next().await {
         match res {
@@ -191,7 +194,7 @@ async fn async_watch<P: AsRef<Path>>(
                                 if audit_logs.is_empty()
                                     || audit_log.timestamp > audit_logs.last().unwrap().timestamp
                                 {
-                                    println!("parsed line: {audit_log}");
+                                    println!("INFO: Parsed line: {audit_log}");
                                     audit_logs.push(audit_log);
 
                                     position = file.stream_position()?;
@@ -211,19 +214,51 @@ async fn async_watch<P: AsRef<Path>>(
     Ok(())
 }
 
-fn main() {
-    let path = std::env::args()
+fn read_existing_logs<P: AsRef<Path>>(path: &P, audit_logs: &mut Vec<AuditLog>) -> Result<u64> {
+    let mut file = File::open(path)?;
+    let mut string = String::new();
+    file.read_to_string(&mut string)?;
+
+    for line in string.lines() {
+        match parse_line(line) {
+            Ok(audit_log) => {
+                if audit_logs.is_empty()
+                    || audit_log.timestamp > audit_logs.last().unwrap().timestamp
+                {
+                    println!("parsed line: {audit_log}");
+                    audit_logs.push(audit_log);
+                }
+            }
+            Err(e) => {
+                eprintln!("ERROR: {}", e);
+            }
+        }
+    }
+
+    file.stream_position()
+        .context("Failed to get stream position")
+}
+fn main() -> Result<()> {
+    let file_path = std::env::args()
         .nth(1)
-        .expect("Argument 1 needs to be a path");
-    println!("watching {}", path);
+        .expect("Argument 1 needs to be the log file path");
+    let file_path = Path::new(&file_path);
 
     let mut audit_logs: Vec<AuditLog> = vec![];
 
+    let stream_position = read_existing_logs(&file_path, &mut audit_logs)?;
+
+    let path = file_path
+        .parent()
+        .context(format!("ERROR: Could not get parent of {file_path:?}"))?;
+
     futures::executor::block_on(async {
-        if let Err(e) = async_watch(path, &mut audit_logs).await {
+        if let Err(e) = async_watch(path, stream_position, &mut audit_logs).await {
             eprintln!("ERROR: {:?}", e)
         }
     });
+
+    Ok(())
 }
 
 #[cfg(test)]
