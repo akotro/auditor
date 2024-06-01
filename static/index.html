@@ -19,14 +19,26 @@
       #pagination button,
       #pagination input,
       #search button {
-        width: 140px;
+        width: 100%; /* Full width on small screens */
         box-sizing: border-box;
         margin: 5px;
       }
       #search input {
-        width: 800px;
+        width: 100%; /* Full width on small screens */
         box-sizing: border-box;
         margin: 5px;
+      }
+
+      /* Media query for larger screens */
+      @media (min-width: 600px) {
+        #pagination button,
+        #pagination input,
+        #search button {
+          width: 140px; /* Fixed width on larger screens */
+        }
+        #search input {
+          width: 800px; /* Fixed width on larger screens */
+        }
       }
     </style>
   </head>
