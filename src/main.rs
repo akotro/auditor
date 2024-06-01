@@ -347,7 +347,7 @@ async fn search_audit_logs(
     audit_logs.reverse();
 
     let query = params.get("q").unwrap_or(&String::new()).to_owned();
-    let n: usize = params.get("n").and_then(|s| s.parse().ok()).unwrap_or(5);
+    let n: usize = params.get("n").and_then(|s| s.parse().ok()).unwrap_or(20);
 
     let results: Vec<AuditLogResponse> = fuzzy_search_best_n(&query, &audit_logs, n)
         .iter()

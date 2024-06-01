@@ -14,11 +14,19 @@
         display: flex;
         justify-content: center;
         align-items: center;
+        flex-direction: column;
       }
       #pagination button,
-      #pagination input {
+      #pagination input,
+      #search button {
         width: 140px;
         box-sizing: border-box;
+        margin: 5px;
+      }
+      #search input {
+        width: 800px;
+        box-sizing: border-box;
+        margin: 5px;
       }
     </style>
   </head>
@@ -27,15 +35,9 @@
       <h1 class="centered">Audit Logs</h1>
       <hr />
       <div class="centered">
-        <div id="pagination" class="text-center">
-          <button id="prevPage" class="secondary">Previous</button>
-          <input
-            id="currentPage"
-            type="number"
-            class="input text-center"
-            value="1"
-          />
-          <button id="nextPage" class="secondary">Next</button>
+        <div id="search" class="text-center">
+          <input id="searchQuery" type="text" placeholder="Search" />
+          <button id="searchBtn">Search</button>
         </div>
       </div>
       <div id="table-div" class="overflow-auto">
@@ -49,14 +51,30 @@
           <tbody></tbody>
         </table>
       </div>
+      <div class="centered">
+        <div id="pagination" class="text-center">
+          <button id="prevPage" class="secondary">Previous</button>
+          <input
+            id="currentPage"
+            type="number"
+            class="input text-center"
+            value="1"
+            min="1"
+          />
+          <button id="nextPage" class="secondary">Next</button>
+        </div>
+      </div>
     </main>
 
     <script>
+      let currentPage = 1;
+      let searchQuery = "";
+      let isSearching = false;
+
       function fetchData(page) {
         const logsElement = document
           .getElementById("logs")
           .getElementsByTagName("tbody")[0];
-        const logsTable = document.getElementById("logs");
 
         logsElement.innerHTML = "";
 
@@ -76,17 +94,38 @@
           });
       }
 
-      window.onload = function () {
-        let currentPage = 1;
+      function searchAuditLogs(query) {
+        const logsElement = document
+          .getElementById("logs")
+          .getElementsByTagName("tbody")[0];
 
+        logsElement.innerHTML = "";
+
+        fetch(`/api/audit_logs/search?q=${encodeURIComponent(query)}`)
+          .then((response) => response.json())
+          .then((data) => {
+            data.forEach((log) => {
+              const row = logsElement.insertRow();
+              const timestampCell = row.insertCell(0);
+              const commandCell = row.insertCell(1);
+
+              timestampCell.textContent = log.timestamp;
+              commandCell.textContent = log.command;
+            });
+          });
+      }
+
+      window.onload = function () {
         fetchData(currentPage);
 
         const prevPageBtn = document.getElementById("prevPage");
         const nextPageBtn = document.getElementById("nextPage");
         const currentPageInput = document.getElementById("currentPage");
+        const searchBtn = document.getElementById("searchBtn");
+        const searchQueryInput = document.getElementById("searchQuery");
 
         prevPageBtn.addEventListener("click", () => {
-          if (currentPage > 1) {
+          if (!isSearching && currentPage > 1) {
             currentPage--;
             fetchData(currentPage);
             currentPageInput.value = currentPage;
@@ -94,18 +133,47 @@
         });
 
         nextPageBtn.addEventListener("click", () => {
-          currentPage++;
-          fetchData(currentPage);
-          currentPageInput.value = currentPage;
+          if (!isSearching) {
+            currentPage++;
+            fetchData(currentPage);
+            currentPageInput.value = currentPage;
+          }
         });
 
         currentPageInput.addEventListener("change", () => {
-          let requestedPage = parseInt(currentPageInput.value);
-          if (!isNaN(requestedPage) && requestedPage >= 1) {
-            currentPage = requestedPage;
+          if (!isSearching) {
+            let requestedPage = parseInt(currentPageInput.value);
+            if (!isNaN(requestedPage) && requestedPage >= 1) {
+              currentPage = requestedPage;
+              fetchData(currentPage);
+            } else {
+              currentPageInput.value = currentPage;
+            }
+          }
+        });
+
+        searchBtn.addEventListener("click", () => {
+          searchQuery = searchQueryInput.value;
+          isSearching = true;
+          currentPage = 1;
+          currentPageInput.value = currentPage;
+          searchAuditLogs(searchQuery);
+        });
+
+        searchQueryInput.addEventListener("input", () => {
+          if (searchQueryInput.value === "") {
+            isSearching = false;
             fetchData(currentPage);
-          } else {
+          }
+        });
+
+        searchQueryInput.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            searchQuery = searchQueryInput.value;
+            isSearching = true;
+            currentPage = 1;
             currentPageInput.value = currentPage;
+            searchAuditLogs(searchQuery);
           }
         });
       };
