@@ -19,7 +19,7 @@ use std::{
     fmt::{self, Display},
     fs::File,
     io::{Read, Seek, SeekFrom},
-    path::Path,
+    path::{Path, PathBuf},
     thread,
     time::Duration,
 };
@@ -293,6 +293,15 @@ async fn get_audit_logs(
 async fn run_server(port: u32, audit_logs: web::Data<Mutex<Vec<AuditLog>>>) -> std::io::Result<()> {
     env_logger::init_from_env(Env::default().default_filter_or("debug"));
 
+    let mut static_dir = env::current_exe()
+        .ok()
+        .and_then(|pb| pb.parent().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("static");
+    if cfg!(debug_assertions) {
+        static_dir = "./static".into();
+    }
+
     println!("INFO: Starting server");
 
     HttpServer::new(move || {
@@ -302,7 +311,7 @@ async fn run_server(port: u32, audit_logs: web::Data<Mutex<Vec<AuditLog>>>) -> s
             ))
             .app_data(audit_logs.clone())
             .service(web::scope("/api").service(get_audit_logs))
-            .service(actix_files::Files::new("/", "./static").index_file("index.html"))
+            .service(actix_files::Files::new("/", static_dir.clone()).index_file("index.html"))
             .default_service(web::route().to(HttpResponse::NotFound))
     })
     .bind(format!("127.0.0.1:{port}"))?
