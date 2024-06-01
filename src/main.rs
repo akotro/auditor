@@ -5,7 +5,6 @@ use dotenvy::dotenv;
 use env_logger::Env;
 use futures::{
     channel::mpsc::{channel, Receiver},
-    lock::Mutex,
     SinkExt, StreamExt,
 };
 use notify::{
@@ -19,10 +18,12 @@ use std::{
     fmt::{self, Display},
     fs::File,
     io::{Read, Seek, SeekFrom},
+    iter,
     path::{Path, PathBuf},
     thread,
     time::Duration,
 };
+use tokio::sync::Mutex;
 
 const PORT: &str = "PORT";
 const LOG_TYPE_EXECVE: &str = "EXECVE";
@@ -34,16 +35,7 @@ struct AuditLog {
     program: String,
     args: Vec<String>,
     argc: u32,
-}
-
-impl AuditLog {
-    fn get_command(&self) -> String {
-        format!(
-            "{program} {args}",
-            program = self.program,
-            args = self.args.join(" ")
-        )
-    }
+    command: String,
 }
 
 impl Display for AuditLog {
@@ -52,7 +44,7 @@ impl Display for AuditLog {
             f,
             "{timestamp}:  {command}",
             timestamp = self.timestamp,
-            command = self.get_command()
+            command = self.command
         )
     }
 }
@@ -67,44 +59,9 @@ impl AuditLogResponse {
     fn new(audit_log: &AuditLog) -> Self {
         Self {
             timestamp: audit_log.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
-            command: audit_log.get_command(),
+            command: audit_log.command.clone(),
         }
     }
-}
-
-fn parse_timestamp(log: &str) -> Result<DateTime<Utc>> {
-    let timestamp_str = log.strip_prefix("msg=audit(").context(format!(
-        "Failed to strip prefix 'msg=audit(' from input [{log}]"
-    ))?;
-
-    let mut parts = timestamp_str
-        .strip_suffix("):")
-        .context(format!("Failed to strip timestamp [{timestamp_str}]"))?
-        .split(':');
-    let timestamp_str = parts
-        .next()
-        .context(format!("Failed to split input [{log}] by colon"))?;
-
-    let mut timestamp_parts = timestamp_str.split('.');
-    let seconds_str = timestamp_parts.next().context(format!(
-        "Failed to split timestamp [{timestamp_str}] by dot"
-    ))?;
-    let nanos_str = timestamp_parts.next().context(format!(
-        "Failed to split timestamp [{timestamp_str}] by dot for nanoseconds"
-    ))?;
-
-    let seconds: i64 = seconds_str
-        .parse()
-        .context(format!("Failed to parse seconds from '{}'", seconds_str))?;
-    let nanos = nanos_str
-        .parse::<u32>()
-        .context(format!("Failed to parse nanoseconds from '{}'", nanos_str))?;
-
-    let datetime = DateTime::from_timestamp(seconds, nanos).context(format!(
-        "Failed to create NaiveDateTime from timestamp parts seconds [{seconds}], nanos [{nanos}]"
-    ))?;
-
-    Ok(datetime)
 }
 
 fn parse_line(line: &str) -> Result<AuditLog> {
@@ -162,12 +119,15 @@ fn parse_line(line: &str) -> Result<AuditLog> {
         }
     }
 
+    let command = format!("{program} {args}", program = program, args = args.join(" "));
+
     Ok(AuditLog {
         log_type,
         timestamp,
         program,
         args,
         argc,
+        command,
     })
 }
 
@@ -266,14 +226,14 @@ fn read_existing_logs<P: AsRef<Path>>(path: &P, audit_logs: &mut Vec<AuditLog>) 
 #[get("/audit_logs")]
 async fn get_audit_logs(
     audit_logs: web::Data<Mutex<Vec<AuditLog>>>,
-    query: web::Query<HashMap<String, String>>,
+    params: web::Query<HashMap<String, String>>,
 ) -> HttpResponse {
     let audit_logs = audit_logs.lock().await;
     let mut audit_logs: Vec<&AuditLog> = audit_logs.iter().collect();
     audit_logs.reverse();
 
-    let page: usize = query.get("page").and_then(|s| s.parse().ok()).unwrap_or(1);
-    let page_size: usize = query
+    let page: usize = params.get("page").and_then(|s| s.parse().ok()).unwrap_or(1);
+    let page_size: usize = params
         .get("page_size")
         .and_then(|s| s.parse().ok())
         .unwrap_or(10);
@@ -288,6 +248,113 @@ async fn get_audit_logs(
         .collect();
 
     HttpResponse::Ok().json(response)
+}
+
+fn get_trigrams(s: &str) -> Vec<(char, char, char)> {
+    let it_1 = iter::once(' ').chain(iter::once(' ')).chain(s.chars());
+    let it_2 = iter::once(' ').chain(s.chars());
+    let it_3 = s.chars().chain(iter::once(' '));
+
+    let res: Vec<(char, char, char)> = it_1
+        .zip(it_2)
+        .zip(it_3)
+        .map(|((a, b), c): ((char, char), char)| (a, b, c))
+        .collect();
+    res
+}
+
+fn fuzzy_compare(a: &str, b: &str) -> f32 {
+    let string_len = a.chars().count() + 1;
+
+    let trigrams_a = get_trigrams(a);
+    let trigrams_b = get_trigrams(b);
+
+    let mut acc: f32 = 0.0f32;
+
+    for t_a in &trigrams_a {
+        for t_b in &trigrams_b {
+            if t_a == t_b {
+                acc += 1.0f32;
+                break;
+            }
+        }
+    }
+    let res = acc / (string_len as f32);
+
+    if (0.0f32..=1.0f32).contains(&res) {
+        res
+    } else {
+        0.0f32
+    }
+}
+
+fn fuzzy_search_best_n<'a>(s: &'a str, list: &'a [&AuditLog], n: usize) -> Vec<&'a AuditLog> {
+    let mut res: Vec<(&'a AuditLog, f32)> = list
+        .iter()
+        .map(|log| {
+            let score = fuzzy_compare(s, &log.command);
+            (*log, score)
+        })
+        .collect();
+
+    res.sort_by(|(_, d1), (_, d2)| d2.partial_cmp(d1).unwrap());
+
+    res.into_iter().take(n).map(|(log, _)| log).collect()
+}
+
+fn parse_timestamp(log: &str) -> Result<DateTime<Utc>> {
+    let timestamp_str = log.strip_prefix("msg=audit(").context(format!(
+        "Failed to strip prefix 'msg=audit(' from input [{log}]"
+    ))?;
+
+    let mut parts = timestamp_str
+        .strip_suffix("):")
+        .context(format!("Failed to strip timestamp [{timestamp_str}]"))?
+        .split(':');
+    let timestamp_str = parts
+        .next()
+        .context(format!("Failed to split input [{log}] by colon"))?;
+
+    let mut timestamp_parts = timestamp_str.split('.');
+    let seconds_str = timestamp_parts.next().context(format!(
+        "Failed to split timestamp [{timestamp_str}] by dot"
+    ))?;
+    let nanos_str = timestamp_parts.next().context(format!(
+        "Failed to split timestamp [{timestamp_str}] by dot for nanoseconds"
+    ))?;
+
+    let seconds: i64 = seconds_str
+        .parse()
+        .context(format!("Failed to parse seconds from '{}'", seconds_str))?;
+    let nanos = nanos_str
+        .parse::<u32>()
+        .context(format!("Failed to parse nanoseconds from '{}'", nanos_str))?;
+
+    let datetime = DateTime::from_timestamp(seconds, nanos).context(format!(
+        "Failed to create NaiveDateTime from timestamp parts seconds [{seconds}], nanos [{nanos}]"
+    ))?;
+
+    Ok(datetime)
+}
+
+#[get("/audit_logs/search")]
+async fn search_audit_logs(
+    audit_logs: web::Data<Mutex<Vec<AuditLog>>>,
+    params: web::Query<HashMap<String, String>>,
+) -> HttpResponse {
+    let audit_logs = audit_logs.lock().await;
+    let mut audit_logs: Vec<&AuditLog> = audit_logs.iter().collect();
+    audit_logs.reverse();
+
+    let query = params.get("q").unwrap_or(&String::new()).to_owned();
+    let n: usize = params.get("n").and_then(|s| s.parse().ok()).unwrap_or(5);
+
+    let results: Vec<AuditLogResponse> = fuzzy_search_best_n(&query, &audit_logs, n)
+        .iter()
+        .map(|log| AuditLogResponse::new(log))
+        .collect();
+
+    HttpResponse::Ok().json(results)
 }
 
 async fn run_server(port: u32, audit_logs: web::Data<Mutex<Vec<AuditLog>>>) -> std::io::Result<()> {
@@ -310,7 +377,11 @@ async fn run_server(port: u32, audit_logs: web::Data<Mutex<Vec<AuditLog>>>) -> s
                 "%a \"%r\" %s %b %D \"%{Referer}i\" \"%{User-Agent}i\" %U %{r}a",
             ))
             .app_data(audit_logs.clone())
-            .service(web::scope("/api").service(get_audit_logs))
+            .service(
+                web::scope("/api")
+                    .service(get_audit_logs)
+                    .service(search_audit_logs),
+            )
             .service(actix_files::Files::new("/", static_dir.clone()).index_file("index.html"))
             .default_service(web::route().to(HttpResponse::NotFound))
     })
