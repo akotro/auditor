@@ -36,12 +36,6 @@ struct AuditLog {
     argc: u32,
 }
 
-#[derive(Debug, Serialize)]
-struct AuditLogResponse {
-    timestamp: String,
-    command: String,
-}
-
 impl AuditLog {
     fn get_command(&self) -> String {
         format!(
@@ -60,6 +54,21 @@ impl Display for AuditLog {
             timestamp = self.timestamp,
             command = self.get_command()
         )
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct AuditLogResponse {
+    timestamp: String,
+    command: String,
+}
+
+impl AuditLogResponse {
+    fn new(audit_log: &AuditLog) -> Self {
+        Self {
+            timestamp: audit_log.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
+            command: audit_log.get_command(),
+        }
     }
 }
 
@@ -275,10 +284,7 @@ async fn get_audit_logs(
 
     let response: Vec<AuditLogResponse> = audit_logs
         .iter()
-        .map(|log| AuditLogResponse {
-            timestamp: log.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
-            command: log.get_command(),
-        })
+        .map(|log| AuditLogResponse::new(log))
         .collect();
 
     HttpResponse::Ok().json(response)

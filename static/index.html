@@ -1,108 +1,114 @@
-<!DOCTYPE html>
+<!doctype html>
 <html data-theme="dark">
-<head>
+  <head>
     <title>Audit Logs</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.zinc.min.css"
     />
     <style>
-        .centered {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        #pagination button, #pagination input {
-            width: 140px;
-            box-sizing: border-box;
-        }
+      .centered {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+      #pagination button,
+      #pagination input {
+        width: 140px;
+        box-sizing: border-box;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <main class="container-fluid">
-        <h1 class="centered">Audit Logs</h1>
-        <hr />
-        <div class="centered">
-            <div id="pagination" class="text-center">
-                <button id="prevPage" class="secondary">Previous</button>
-                <input id="currentPage" type="number" class="input text-center" value="1">
-                <button id="nextPage" class="secondary">Next</button>
-            </div>
+      <h1 class="centered">Audit Logs</h1>
+      <hr />
+      <div class="centered">
+        <div id="pagination" class="text-center">
+          <button id="prevPage" class="secondary">Previous</button>
+          <input
+            id="currentPage"
+            type="number"
+            class="input text-center"
+            value="1"
+          />
+          <button id="nextPage" class="secondary">Next</button>
         </div>
-        <div id="table-div" class="overflow-auto">
-            <table id="logs">
-                <thead>
-                    <tr>
-                        <th scope="col">Timestamp</th>
-                        <th scope="col">Command</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </div>
+      </div>
+      <div id="table-div" class="overflow-auto">
+        <table id="logs">
+          <thead>
+            <tr>
+              <th scope="col">Timestamp</th>
+              <th scope="col">Command</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </main>
 
     <script>
-        function fetchData(page) {
-            const logsElement = document.getElementById('logs').getElementsByTagName('tbody')[0];
-            const logsTable = document.getElementById('logs');
+      function fetchData(page) {
+        const logsElement = document
+          .getElementById("logs")
+          .getElementsByTagName("tbody")[0];
+        const logsTable = document.getElementById("logs");
 
-            logsElement.innerHTML = '';
+        logsElement.innerHTML = "";
 
-            const page_size = 10;
+        const page_size = 10;
 
-            fetch(`/api/audit_logs?page=${page}&page_size=${page_size}`)
-                .then(response => response.json())
-                .then(data => {
-                    data.forEach(log => {
-                        const row = logsElement.insertRow();
-                        const timestampCell = row.insertCell(0);
-                        const commandCell = row.insertCell(1);
+        fetch(`/api/audit_logs?page=${page}&page_size=${page_size}`)
+          .then((response) => response.json())
+          .then((data) => {
+            data.forEach((log) => {
+              const row = logsElement.insertRow();
+              const timestampCell = row.insertCell(0);
+              const commandCell = row.insertCell(1);
 
-                        timestampCell.textContent = log.timestamp;
-                        commandCell.textContent = log.command;
-                    });
+              timestampCell.textContent = log.timestamp;
+              commandCell.textContent = log.command;
+            });
+          });
+      }
 
-                });
-        }
+      window.onload = function () {
+        let currentPage = 1;
 
+        fetchData(currentPage);
 
-        window.onload = function() {
-            let currentPage = 1;
+        const prevPageBtn = document.getElementById("prevPage");
+        const nextPageBtn = document.getElementById("nextPage");
+        const currentPageInput = document.getElementById("currentPage");
 
+        prevPageBtn.addEventListener("click", () => {
+          if (currentPage > 1) {
+            currentPage--;
             fetchData(currentPage);
+            currentPageInput.value = currentPage;
+          }
+        });
 
-            const prevPageBtn = document.getElementById('prevPage');
-            const nextPageBtn = document.getElementById('nextPage');
-            const currentPageInput = document.getElementById('currentPage');
+        nextPageBtn.addEventListener("click", () => {
+          currentPage++;
+          fetchData(currentPage);
+          currentPageInput.value = currentPage;
+        });
 
-            prevPageBtn.addEventListener('click', () => {
-                if (currentPage > 1) {
-                    currentPage--;
-                    fetchData(currentPage);
-                    currentPageInput.value = currentPage;
-                }
-            });
-
-            nextPageBtn.addEventListener('click', () => {
-                currentPage++;
-                fetchData(currentPage);
-                currentPageInput.value = currentPage;
-            });
-
-            currentPageInput.addEventListener('change', () => {
-                let requestedPage = parseInt(currentPageInput.value);
-                if (!isNaN(requestedPage) && requestedPage >= 1) {
-                    currentPage = requestedPage;
-                    fetchData(currentPage);
-                } else {
-                    currentPageInput.value = currentPage;
-                }
-            });
-        };
+        currentPageInput.addEventListener("change", () => {
+          let requestedPage = parseInt(currentPageInput.value);
+          if (!isNaN(requestedPage) && requestedPage >= 1) {
+            currentPage = requestedPage;
+            fetchData(currentPage);
+          } else {
+            currentPageInput.value = currentPage;
+          }
+        });
+      };
     </script>
-</body>
+  </body>
 </html>
