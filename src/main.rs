@@ -1,14 +1,21 @@
+use actix_web::{get, middleware::Logger, web, App, HttpResponse, HttpServer};
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
+use dotenvy::dotenv;
+use env_logger::Env;
 use futures::{
     channel::mpsc::{channel, Receiver},
+    lock::Mutex,
     SinkExt, StreamExt,
 };
 use notify::{
     event::{DataChange, ModifyKind},
     Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
 };
+use serde::Serialize;
 use std::{
+    collections::HashMap,
+    env,
     fmt::{self, Display},
     fs::File,
     io::{Read, Seek, SeekFrom},
@@ -17,15 +24,22 @@ use std::{
     time::Duration,
 };
 
+const PORT: &str = "PORT";
 const LOG_TYPE_EXECVE: &str = "EXECVE";
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 struct AuditLog {
     log_type: String,
     timestamp: DateTime<Utc>,
     program: String,
     args: Vec<String>,
     argc: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct AuditLogResponse {
+    timestamp: String,
+    command: String,
 }
 
 impl AuditLog {
@@ -166,9 +180,9 @@ fn async_watcher() -> notify::Result<(RecommendedWatcher, Receiver<notify::Resul
 async fn async_watch<P: AsRef<Path>>(
     path: P,
     stream_position: u64,
-    audit_logs: &mut Vec<AuditLog>,
+    audit_logs: web::Data<Mutex<Vec<AuditLog>>>,
 ) -> notify::Result<()> {
-    println!("INFO: Starting watch");
+    println!("INFO: Starting watcher");
 
     let (mut watcher, mut rx) = async_watcher()?;
 
@@ -191,6 +205,7 @@ async fn async_watch<P: AsRef<Path>>(
                     for line in string.lines() {
                         match parse_line(line) {
                             Ok(audit_log) => {
+                                let mut audit_logs = audit_logs.lock().await;
                                 if audit_logs.is_empty()
                                     || audit_log.timestamp > audit_logs.last().unwrap().timestamp
                                 {
@@ -238,7 +253,64 @@ fn read_existing_logs<P: AsRef<Path>>(path: &P, audit_logs: &mut Vec<AuditLog>) 
     file.stream_position()
         .context("Failed to get stream position")
 }
-fn main() -> Result<()> {
+
+#[get("/audit_logs")]
+async fn get_audit_logs(
+    audit_logs: web::Data<Mutex<Vec<AuditLog>>>,
+    query: web::Query<HashMap<String, String>>,
+) -> HttpResponse {
+    let audit_logs = audit_logs.lock().await;
+    let mut audit_logs: Vec<&AuditLog> = audit_logs.iter().collect();
+    audit_logs.reverse();
+
+    let page: usize = query.get("page").and_then(|s| s.parse().ok()).unwrap_or(1);
+    let page_size: usize = query
+        .get("page_size")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+
+    let start = (page - 1) * page_size;
+    let end = start + page_size;
+    let audit_logs = &audit_logs[start..end.min(audit_logs.len())];
+
+    let response: Vec<AuditLogResponse> = audit_logs
+        .iter()
+        .map(|log| AuditLogResponse {
+            timestamp: log.timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
+            command: log.get_command(),
+        })
+        .collect();
+
+    HttpResponse::Ok().json(response)
+}
+
+async fn run_server(port: u32, audit_logs: web::Data<Mutex<Vec<AuditLog>>>) -> std::io::Result<()> {
+    env_logger::init_from_env(Env::default().default_filter_or("debug"));
+
+    println!("INFO: Starting server");
+
+    HttpServer::new(move || {
+        App::new()
+            .wrap(Logger::new(
+                "%a \"%r\" %s %b %D \"%{Referer}i\" \"%{User-Agent}i\" %U %{r}a",
+            ))
+            .app_data(audit_logs.clone())
+            .service(web::scope("/api").service(get_audit_logs))
+            .service(actix_files::Files::new("/", "./static").index_file("index.html"))
+            .default_service(web::route().to(HttpResponse::NotFound))
+    })
+    .bind(format!("127.0.0.1:{port}"))?
+    .run()
+    .await
+}
+
+#[actix_rt::main]
+async fn main() -> Result<()> {
+    dotenv().ok();
+
+    let port = env::var(PORT).unwrap_or("8080".to_string());
+    let port = port.parse::<u32>()?;
+
     let file_path = std::env::args()
         .nth(1)
         .expect("Argument 1 needs to be the log file path");
@@ -252,11 +324,26 @@ fn main() -> Result<()> {
         .parent()
         .context(format!("ERROR: Could not get parent of {file_path:?}"))?;
 
-    futures::executor::block_on(async {
-        if let Err(e) = async_watch(path, stream_position, &mut audit_logs).await {
-            eprintln!("ERROR: {:?}", e)
-        }
-    });
+    let audit_logs = web::Data::new(Mutex::new(audit_logs));
+
+    let server = run_server(port, audit_logs.clone());
+    let watcher = async_watch(path, stream_position, audit_logs);
+
+    tokio::select! {
+        res = server => {
+            if let Err(e) = res {
+                eprintln!("ERROR: Server: {:?}", e);
+            }
+        },
+        res = watcher => {
+            if let Err(e) = res {
+                eprintln!("ERROR: Watcher: {:?}", e);
+            }
+        },
+        _ = tokio::signal::ctrl_c() => {
+            println!("INFO: Received Ctrl-C, shutting down.");
+        },
+    }
 
     Ok(())
 }
