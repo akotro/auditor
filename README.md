@@ -1,6 +1,8 @@
+[![Test](https://github.com/akotro/auditor/actions/workflows/test.yml/badge.svg)](https://github.com/akotro/auditor/actions/workflows/test.yml)
+
 # Auditor
 
-A simple Rust program with a minimal web UI for parsing and displaying Linux audit logs.
+A simple Rust program with a minimal web UI for parsing and displaying Linux EXECVE audit logs.
 
 ![auditor](./resources/auditor_screenshot.png)
 

@@ -349,6 +349,7 @@ async fn search_audit_logs(
     let query = params.get("q").unwrap_or(&String::new()).to_owned();
     let n: usize = params.get("n").and_then(|s| s.parse().ok()).unwrap_or(20);
 
+    // TODO: sort by date
     let results: Vec<AuditLogResponse> = fuzzy_search_best_n(&query, &audit_logs, n)
         .iter()
         .map(|log| AuditLogResponse::new(log))
@@ -390,6 +391,7 @@ async fn run_server(port: u32, audit_logs: web::Data<Mutex<Vec<AuditLog>>>) -> s
     .await
 }
 
+// TODO: Maybe add sqlite for storing logs to reduce memory footprint
 #[actix_rt::main]
 async fn main() -> Result<()> {
     dotenv().ok();
