@@ -31,12 +31,6 @@
       auditor = craneLib.buildPackage {
         inherit src;
         name = "auditor";
-        # src = craneLib.cleanCargoSource (craneLib.path ./.);
-
-        # Add extra inputs here or any other derivation settings
-        # doCheck = true;
-        # buildInputs = [];
-        # nativeBuildInputs = [];
         postInstall = ''
           cp -r static $out/bin
         '';

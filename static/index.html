@@ -50,6 +50,7 @@
         <div id="search" class="text-center">
           <input id="searchQuery" type="text" placeholder="Search" />
           <button id="searchBtn">Search</button>
+          <button id="clearBtn">Clear</button>
         </div>
       </div>
       <div id="table-div" class="overflow-auto">
@@ -127,6 +128,13 @@
           });
       }
 
+      function clearLogs() {
+        fetch("/api/audit_logs/clear")
+          .then((response) => response.text())
+          .then((data) => console.log(data))
+          .catch((error) => console.error("Error:", error));
+      }
+
       window.onload = function () {
         fetchData(currentPage);
 
@@ -135,6 +143,7 @@
         const currentPageInput = document.getElementById("currentPage");
         const searchBtn = document.getElementById("searchBtn");
         const searchQueryInput = document.getElementById("searchQuery");
+        const clearBtn = document.getElementById("clearBtn");
 
         prevPageBtn.addEventListener("click", () => {
           if (!isSearching && currentPage > 1) {
@@ -187,6 +196,11 @@
             currentPageInput.value = currentPage;
             searchAuditLogs(searchQuery);
           }
+        });
+
+        clearBtn.addEventListener("click", (event) => {
+          clearLogs();
+          fetchData(currentPage);
         });
       };
     </script>

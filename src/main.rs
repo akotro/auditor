@@ -23,7 +23,7 @@ use std::{
     thread,
     time::Duration,
 };
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, time::interval};
 
 const PORT: &str = "PORT";
 const LOG_TYPE_EXECVE: &str = "EXECVE";
@@ -223,33 +223,6 @@ fn read_existing_logs<P: AsRef<Path>>(path: &P, audit_logs: &mut Vec<AuditLog>) 
         .context("Failed to get stream position")
 }
 
-#[get("/audit_logs")]
-async fn get_audit_logs(
-    audit_logs: web::Data<Mutex<Vec<AuditLog>>>,
-    params: web::Query<HashMap<String, String>>,
-) -> HttpResponse {
-    let audit_logs = audit_logs.lock().await;
-    let mut audit_logs: Vec<&AuditLog> = audit_logs.iter().collect();
-    audit_logs.reverse();
-
-    let page: usize = params.get("page").and_then(|s| s.parse().ok()).unwrap_or(1);
-    let page_size: usize = params
-        .get("page_size")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(10);
-
-    let start = (page - 1) * page_size;
-    let end = start + page_size;
-    let audit_logs = &audit_logs[start..end.min(audit_logs.len())];
-
-    let response: Vec<AuditLogResponse> = audit_logs
-        .iter()
-        .map(|log| AuditLogResponse::new(log))
-        .collect();
-
-    HttpResponse::Ok().json(response)
-}
-
 fn get_trigrams(s: &str) -> Vec<(char, char, char)> {
     let it_1 = iter::once(' ').chain(iter::once(' ')).chain(s.chars());
     let it_2 = iter::once(' ').chain(s.chars());
@@ -337,6 +310,33 @@ fn parse_timestamp(log: &str) -> Result<DateTime<Utc>> {
     Ok(datetime)
 }
 
+#[get("/audit_logs")]
+async fn get_audit_logs(
+    audit_logs: web::Data<Mutex<Vec<AuditLog>>>,
+    params: web::Query<HashMap<String, String>>,
+) -> HttpResponse {
+    let audit_logs = audit_logs.lock().await;
+    let mut audit_logs: Vec<&AuditLog> = audit_logs.iter().collect();
+    audit_logs.reverse();
+
+    let page: usize = params.get("page").and_then(|s| s.parse().ok()).unwrap_or(1);
+    let page_size: usize = params
+        .get("page_size")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+
+    let start = (page - 1) * page_size;
+    let end = start + page_size;
+    let audit_logs = &audit_logs[start..end.min(audit_logs.len())];
+
+    let response: Vec<AuditLogResponse> = audit_logs
+        .iter()
+        .map(|log| AuditLogResponse::new(log))
+        .collect();
+
+    HttpResponse::Ok().json(response)
+}
+
 #[get("/audit_logs/search")]
 async fn search_audit_logs(
     audit_logs: web::Data<Mutex<Vec<AuditLog>>>,
@@ -356,6 +356,16 @@ async fn search_audit_logs(
         .collect();
 
     HttpResponse::Ok().json(results)
+}
+
+#[get("/audit_logs/clear")]
+async fn clear_audit_logs(audit_logs: web::Data<Mutex<Vec<AuditLog>>>) -> HttpResponse {
+    let mut logs = audit_logs.lock().await;
+    logs.clear();
+    logs.shrink_to_fit();
+    println!("INFO: Cleared and deallocated audit logs");
+
+    HttpResponse::Ok().body("Audit logs cleared and memory deallocated")
 }
 
 async fn run_server(port: u32, audit_logs: web::Data<Mutex<Vec<AuditLog>>>) -> std::io::Result<()> {
@@ -381,7 +391,8 @@ async fn run_server(port: u32, audit_logs: web::Data<Mutex<Vec<AuditLog>>>) -> s
             .service(
                 web::scope("/api")
                     .service(get_audit_logs)
-                    .service(search_audit_logs),
+                    .service(search_audit_logs)
+                    .service(clear_audit_logs),
             )
             .service(actix_files::Files::new("/", static_dir.clone()).index_file("index.html"))
             .default_service(web::route().to(HttpResponse::NotFound))
