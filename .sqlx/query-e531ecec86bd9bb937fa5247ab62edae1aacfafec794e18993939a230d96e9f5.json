@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT timestamp, command FROM audit_log ORDER BY timestamp DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "timestamp",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "command",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e531ecec86bd9bb937fa5247ab62edae1aacfafec794e18993939a230d96e9f5"
+}

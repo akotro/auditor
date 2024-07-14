@@ -1,5 +1,6 @@
 /target
 resources/audit.log
+auditor.db*
 
 # nix
 /result

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM audit_log WHERE timestamp < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "c961b42c93e3a86e2eadd58c4e3b132f6f08bc2929dad39f3c5b1ff443ca6930"
+}

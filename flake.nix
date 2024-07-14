@@ -22,15 +22,22 @@
       inherit (pkgs) lib;
 
       htmlFilter = path: _type: null != builtins.match ".*html$" path;
-      htmlOrCargo = path: type: (htmlFilter path type) || (craneLib.filterCargoSources path type);
+      sqlFilter = path: _type: null != builtins.match ".*sql$" path;
+      htmlOrCargoOrSql = path: type: (htmlFilter path type) || (sqlFilter path type) || (craneLib.filterCargoSources path type);
       src = lib.cleanSourceWith {
         src = craneLib.path ./.;
-        filter = htmlOrCargo;
+        filter = htmlOrCargoOrSql;
       };
 
       auditor = craneLib.buildPackage {
         inherit src;
         name = "auditor";
+        nativeBuildInputs = [
+          pkgs.sqlx-cli
+        ];
+        preBuild = ''
+          export SQLX_OFFLINE_DIR=${craneLib.path ./.sqlx}
+        '';
         postInstall = ''
           cp -r static $out/bin
         '';
@@ -42,6 +49,7 @@
       devShells.default = pkgs.mkShell {
         packages = [
           pkgs.nil
+          pkgs.sqlx-cli
         ];
       };
     });
