@@ -6,7 +6,7 @@ pub mod watcher;
 
 use anyhow::{Context, Result};
 use dotenvy::dotenv;
-use std::{env, path::Path};
+use std::{env, io::Seek, path::Path};
 
 #[actix_rt::main]
 async fn main() -> Result<()> {
@@ -23,7 +23,8 @@ async fn main() -> Result<()> {
 
     let db_pool = db_util::init_database().await?;
 
-    let stream_position = parser::AuditLog::read_existing_logs(&file_path, db_pool.clone()).await?;
+    // let stream_position = parser::AuditLog::read_existing_logs(&file_path, db_pool.clone()).await?;
+    let stream_position = std::fs::File::open(file_path)?.stream_position()?;
 
     let path = file_path
         .parent()
