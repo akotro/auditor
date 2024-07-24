@@ -13,6 +13,11 @@ use crate::db_util;
 
 pub const LOG_TYPE_EXECVE: &str = "EXECVE";
 
+fn line_regex() -> &'static regex::Regex {
+    static REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    REGEX.get_or_init(|| regex::Regex::new(r#"(\w+)=("(?:\\.|[^"\\])*"|[^\s]+)"#).unwrap())
+}
+
 #[derive(Debug, Serialize)]
 pub struct AuditLogResponse {
     pub timestamp: String,
@@ -50,7 +55,7 @@ impl AuditLog {
     }
 
     fn parse_timestamp(log: &str) -> Result<DateTime<Utc>> {
-        let timestamp_str = log.strip_prefix("msg=audit(").context(format!(
+        let timestamp_str = log.strip_prefix("audit(").context(format!(
             "Failed to strip prefix 'msg=audit(' from input [{log}]"
         ))?;
 
@@ -78,59 +83,62 @@ impl AuditLog {
             .context(format!("Failed to parse nanoseconds from '{}'", nanos_str))?;
 
         let datetime = DateTime::from_timestamp(seconds, nanos).context(format!(
-        "Failed to create NaiveDateTime from timestamp parts seconds [{seconds}], nanos [{nanos}]"
-    ))?;
+            "Failed to create NaiveDateTime from timestamp parts seconds [{seconds}], nanos [{nanos}]"
+        ))?;
 
         Ok(datetime)
     }
 
     pub fn parse_line(line: &str) -> Result<AuditLog> {
-        let mut parts = line.split_whitespace();
+        let mut parts = Vec::new();
+
+        for cap in line_regex().captures_iter(line) {
+            parts.push((cap[1].to_string(), cap[2].to_string()));
+        }
+
+        let mut parts = parts.iter();
 
         let log_type = parts
             .next()
             .context(format!("Missing log type in line: {}", line))?
-            .strip_prefix("type=")
-            .context(format!("Invalid log type in line: {}", line))?
+            .1
             .to_string();
         if log_type != LOG_TYPE_EXECVE {
             return Err(anyhow!(""));
-            // return Err(anyhow!(
-            //     "Unexpected log type: {}. Expected: {LOG_TYPE_EXECVE}",
-            //     log_type
-            // ));
         }
 
-        let timestamp_str = parts
+        let timestamp_str = &parts
             .next()
-            .context(format!("Missing timestamp in line: {}", line))?;
+            .context(format!("Missing timestamp in line: {}", line))?
+            .1;
         let timestamp = Self::parse_timestamp(timestamp_str)
             .context(format!("Invalid timestamp: {}", timestamp_str))?;
+
+        println!("parts: {parts:#?}");
 
         let mut program = String::new();
         let mut args = Vec::new();
         let mut argc = 0;
-        for part in parts {
-            if let Some((key, value)) = part.split_once('=') {
-                match key {
-                    "a0" => {
-                        program = value
-                            .strip_prefix('"')
-                            .context(format!(
-                                "Unable to strip \" from program: '{value}' while parsing '{line}'"
-                            ))?
-                            .strip_suffix('"')
-                            .context(format!(
-                                "Unable to strip \" from program: '{value}' while parsing '{line}'"
-                            ))?
-                            .to_string()
-                    }
-                    "argc" => argc = value.parse::<u32>()?,
-                    _ => {
-                        if !value.starts_with('"') {
-                            args.push(value.to_string())
-                        } else {
-                            args.push(
+        for (key, value) in parts {
+            match key.as_str() {
+                "a0" => {
+                    program = value
+                        .strip_prefix('"')
+                        .context(format!(
+                            "Unable to strip \" from program: '{value}' while parsing '{line}'"
+                        ))?
+                        .strip_suffix('"')
+                        .context(format!(
+                            "Unable to strip \" from program: '{value}' while parsing '{line}'"
+                        ))?
+                        .to_string()
+                }
+                "argc" => argc = value.parse::<u32>()?,
+                _ => {
+                    if !value.starts_with('"') {
+                        args.push(value.to_string())
+                    } else {
+                        args.push(
                                 value
                                     .strip_prefix('"')
                                     .context(format!("Unable to strip \" from argument: '{value}' while parsing '{line}'"))?
@@ -138,7 +146,6 @@ impl AuditLog {
                                     .context(format!("Unable to strip \" from argument: '{value}' while parsing '{line}'"))?
                                     .to_string(),
                             )
-                        }
                     }
                 }
             }

@@ -92,17 +92,17 @@ mod tests {
         assert_eq!(audit_log.args.len(), (audit_log.argc - 1) as usize);
     }
 
-    // #[test]
-    // fn test_parse_line_with_special_characters() {
-    //     let line = r#"type=EXECVE msg=audit(1717004049.439:18034): argc=3 a0="/bin/bash" a1="-c" a2="echo \"Hello, World!\"""#;
-    //     let audit_log = parser::AuditLog::parse_line(line).unwrap();
+    #[test]
+    fn test_parse_line_with_special_characters() {
+        let line = r#"type=EXECVE msg=audit(1717004049.439:18034): argc=3 a0="/bin/bash" a1="-c" a2="echo \"Hello, World!\"""#;
+        let audit_log = parser::AuditLog::parse_line(line).unwrap();
 
-    //     assert_eq!(audit_log.log_type, parser::LOG_TYPE_EXECVE);
-    //     assert_eq!(audit_log.program, "/bin/bash");
-    //     assert_eq!(audit_log.argc, 3);
-    //     assert_eq!(audit_log.args, vec!["-c", "echo \"Hello, World!\""]);
-    //     assert_eq!(audit_log.args.len(), (audit_log.argc - 1) as usize);
-    // }
+        assert_eq!(audit_log.log_type, parser::LOG_TYPE_EXECVE);
+        assert_eq!(audit_log.program, "/bin/bash");
+        assert_eq!(audit_log.argc, 3);
+        assert_eq!(audit_log.args, vec!["-c", r#"echo \"Hello, World!\""#]);
+        assert_eq!(audit_log.args.len(), (audit_log.argc - 1) as usize);
+    }
 
     #[test]
     fn test_parse_line_with_no_args() {
