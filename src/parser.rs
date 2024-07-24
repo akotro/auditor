@@ -14,8 +14,13 @@ use crate::db_util;
 pub const LOG_TYPE_EXECVE: &str = "EXECVE";
 
 fn line_regex() -> &'static regex::Regex {
-    static REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    REGEX.get_or_init(|| regex::Regex::new(r#"(\w+)=("(?:\\.|[^"\\])*"|[^\s]+)"#).unwrap())
+    static LINE_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    LINE_REGEX.get_or_init(|| regex::Regex::new(r#"(\w+)=("(?:\\.|[^"\\])*"|[^\s]+)"#).unwrap())
+}
+
+fn timestamp_regex() -> &'static regex::Regex {
+    static TIMESTAMP_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    TIMESTAMP_REGEX.get_or_init(|| regex::Regex::new(r#"audit\(([^:]+):"#).unwrap())
 }
 
 #[derive(Debug, Serialize)]
@@ -55,52 +60,41 @@ impl AuditLog {
     }
 
     fn parse_timestamp(log: &str) -> Result<DateTime<Utc>> {
-        let timestamp_str = log.strip_prefix("audit(").context(format!(
-            "Failed to strip prefix 'msg=audit(' from input [{log}]"
-        ))?;
+        if let Some(captures) = timestamp_regex().captures(log) {
+            let timestamp_str = &captures[1];
+            let mut timestamp_parts = timestamp_str.split('.');
+            let seconds_str = timestamp_parts.next().context(format!(
+                "ERROR: Failed to split timestamp '{timestamp_str}' by dot for seconds"
+            ))?;
+            let nanos_str = timestamp_parts.next().context(format!(
+                "ERROR: Failed to split timestamp '{timestamp_str}' by dot for nanoseconds"
+            ))?;
 
-        let mut parts = timestamp_str
-            .strip_suffix("):")
-            .context(format!("Failed to strip timestamp [{timestamp_str}]"))?
-            .split(':');
-        let timestamp_str = parts
-            .next()
-            .context(format!("Failed to split input [{log}] by colon"))?;
+            let seconds: i64 = seconds_str.parse()?;
+            let nanos: u32 = nanos_str.parse()?;
 
-        let mut timestamp_parts = timestamp_str.split('.');
-        let seconds_str = timestamp_parts.next().context(format!(
-            "Failed to split timestamp [{timestamp_str}] by dot"
-        ))?;
-        let nanos_str = timestamp_parts.next().context(format!(
-            "Failed to split timestamp [{timestamp_str}] by dot for nanoseconds"
-        ))?;
+            let datetime = DateTime::from_timestamp(seconds, nanos).context(format!(
+                    "ERROR: Failed to create NaiveDateTime from timestamp parts seconds [{seconds}], nanos [{nanos}]"
+                ))?;
 
-        let seconds: i64 = seconds_str
-            .parse()
-            .context(format!("Failed to parse seconds from '{}'", seconds_str))?;
-        let nanos = nanos_str
-            .parse::<u32>()
-            .context(format!("Failed to parse nanoseconds from '{}'", nanos_str))?;
-
-        let datetime = DateTime::from_timestamp(seconds, nanos).context(format!(
-            "Failed to create NaiveDateTime from timestamp parts seconds [{seconds}], nanos [{nanos}]"
-        ))?;
-
-        Ok(datetime)
+            Ok(datetime)
+        } else {
+            Err(anyhow!("ERROR: Failed to capture timestamp from log"))
+        }
     }
 
     pub fn parse_line(line: &str) -> Result<AuditLog> {
         let mut parts = Vec::new();
 
-        for cap in line_regex().captures_iter(line) {
-            parts.push((cap[1].to_string(), cap[2].to_string()));
+        for captures in line_regex().captures_iter(line) {
+            parts.push((captures[1].to_string(), captures[2].to_string()));
         }
 
         let mut parts = parts.iter();
 
         let log_type = parts
             .next()
-            .context(format!("Missing log type in line: {}", line))?
+            .context(format!("ERROR: Missing log type in line: {}", line))?
             .1
             .to_string();
         if log_type != LOG_TYPE_EXECVE {
@@ -109,10 +103,10 @@ impl AuditLog {
 
         let timestamp_str = &parts
             .next()
-            .context(format!("Missing timestamp in line: {}", line))?
+            .context(format!("ERROR: Missing timestamp in line: {}", line))?
             .1;
         let timestamp = Self::parse_timestamp(timestamp_str)
-            .context(format!("Invalid timestamp: {}", timestamp_str))?;
+            .context(format!("ERROR: Invalid timestamp: {}", timestamp_str))?;
 
         let mut program = String::new();
         let mut args = Vec::new();
@@ -123,12 +117,12 @@ impl AuditLog {
                     program = value
                         .strip_prefix('"')
                         .context(format!(
-                            "Unable to strip \" from program: '{value}' while parsing '{line}'"
-                        ))?
+                        "ERROR: Unable to strip \" from program: '{value}' while parsing '{line}'"
+                    ))?
                         .strip_suffix('"')
                         .context(format!(
-                            "Unable to strip \" from program: '{value}' while parsing '{line}'"
-                        ))?
+                        "ERROR: Unable to strip \" from program: '{value}' while parsing '{line}'"
+                    ))?
                         .to_string()
                 }
                 "argc" => argc = value.parse::<u32>()?,
@@ -139,9 +133,9 @@ impl AuditLog {
                         args.push(
                                 value
                                     .strip_prefix('"')
-                                    .context(format!("Unable to strip \" from argument: '{value}' while parsing '{line}'"))?
+                                    .context(format!("ERROR: Unable to strip \" from argument: '{value}' while parsing '{line}'"))?
                                     .strip_suffix('"')
-                                    .context(format!("Unable to strip \" from argument: '{value}' while parsing '{line}'"))?
+                                    .context(format!("ERROR: Unable to strip \" from argument: '{value}' while parsing '{line}'"))?
                                     .to_string(),
                             )
                     }

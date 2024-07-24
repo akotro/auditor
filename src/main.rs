@@ -23,11 +23,8 @@ async fn main() -> Result<()> {
 
     let db_pool = db_util::init_database().await?;
 
-    let stream_position = if cfg!(debug_assertions) {
-        parser::AuditLog::read_existing_logs(&file_path, db_pool.clone()).await?
-    } else {
-        std::fs::File::open(file_path)?.stream_position()?
-    };
+    // let stream_position = parser::AuditLog::read_existing_logs(&file_path, db_pool.clone()).await?;
+    let stream_position = std::fs::File::open(file_path)?.stream_position()?;
 
     let path = file_path
         .parent()
@@ -81,6 +78,10 @@ mod tests {
             ]
         );
         assert_eq!(audit_log.args.len(), (audit_log.argc - 1) as usize);
+        assert_eq!(
+            audit_log.timestamp.to_string(),
+            String::from("2024-05-29 17:34:09.000000439 UTC")
+        );
     }
 
     #[test]
@@ -93,6 +94,10 @@ mod tests {
         assert_eq!(audit_log.argc, 5);
         assert_eq!(audit_log.args, vec!["script.py", "arg1", "arg2", "arg3"]);
         assert_eq!(audit_log.args.len(), (audit_log.argc - 1) as usize);
+        assert_eq!(
+            audit_log.timestamp.to_string(),
+            String::from("2024-05-29 17:34:09.000000439 UTC")
+        );
     }
 
     #[test]
@@ -105,6 +110,10 @@ mod tests {
         assert_eq!(audit_log.argc, 3);
         assert_eq!(audit_log.args, vec!["-c", r#"echo \"Hello, World!\""#]);
         assert_eq!(audit_log.args.len(), (audit_log.argc - 1) as usize);
+        assert_eq!(
+            audit_log.timestamp.to_string(),
+            String::from("2024-05-29 17:34:09.000000439 UTC")
+        );
     }
 
     #[test]
@@ -116,6 +125,10 @@ mod tests {
         assert_eq!(audit_log.program, "/bin/ls");
         assert_eq!(audit_log.argc, 1);
         assert!(audit_log.args.is_empty());
+        assert_eq!(
+            audit_log.timestamp.to_string(),
+            String::from("2024-05-29 17:34:09.000000439 UTC")
+        );
     }
 
     #[test]
@@ -127,6 +140,10 @@ mod tests {
         assert_eq!(audit_log.program, "/bin/ls");
         assert_eq!(audit_log.argc, 0);
         assert_eq!(audit_log.args.len(), 0);
+        assert_eq!(
+            audit_log.timestamp.to_string(),
+            String::from("2024-05-29 17:34:09.000000439 UTC")
+        );
     }
 
     #[test]
