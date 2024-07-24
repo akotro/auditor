@@ -24,3 +24,8 @@ sqlx = { version = "^0.7", features = [
     "chrono",
 ] }
 regex = "1.10.5"
+
+[profile.release]
+debug = false
+lto = true
+opt-level = 3
