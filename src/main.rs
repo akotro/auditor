@@ -79,4 +79,58 @@ mod tests {
         );
         assert_eq!(audit_log.args.len(), (audit_log.argc - 1) as usize);
     }
+
+    #[test]
+    fn test_parse_line_with_multiple_args() {
+        let line = r#"type=EXECVE msg=audit(1717004049.439:18034): argc=5 a0="/usr/bin/python3" a1="script.py" a2="arg1" a3="arg2" a4="arg3""#;
+        let audit_log = parser::AuditLog::parse_line(line).unwrap();
+
+        assert_eq!(audit_log.log_type, parser::LOG_TYPE_EXECVE);
+        assert_eq!(audit_log.program, "/usr/bin/python3");
+        assert_eq!(audit_log.argc, 5);
+        assert_eq!(audit_log.args, vec!["script.py", "arg1", "arg2", "arg3"]);
+        assert_eq!(audit_log.args.len(), (audit_log.argc - 1) as usize);
+    }
+
+    // #[test]
+    // fn test_parse_line_with_special_characters() {
+    //     let line = r#"type=EXECVE msg=audit(1717004049.439:18034): argc=3 a0="/bin/bash" a1="-c" a2="echo \"Hello, World!\"""#;
+    //     let audit_log = parser::AuditLog::parse_line(line).unwrap();
+
+    //     assert_eq!(audit_log.log_type, parser::LOG_TYPE_EXECVE);
+    //     assert_eq!(audit_log.program, "/bin/bash");
+    //     assert_eq!(audit_log.argc, 3);
+    //     assert_eq!(audit_log.args, vec!["-c", "echo \"Hello, World!\""]);
+    //     assert_eq!(audit_log.args.len(), (audit_log.argc - 1) as usize);
+    // }
+
+    #[test]
+    fn test_parse_line_with_no_args() {
+        let line = r#"type=EXECVE msg=audit(1717004049.439:18034): argc=1 a0="/bin/ls""#;
+        let audit_log = parser::AuditLog::parse_line(line).unwrap();
+
+        assert_eq!(audit_log.log_type, parser::LOG_TYPE_EXECVE);
+        assert_eq!(audit_log.program, "/bin/ls");
+        assert_eq!(audit_log.argc, 1);
+        assert!(audit_log.args.is_empty());
+    }
+
+    #[test]
+    fn test_parse_line_with_missing_fields() {
+        let line = r#"type=EXECVE msg=audit(1717004049.439:18034): a0="/bin/ls""#;
+        let audit_log = parser::AuditLog::parse_line(line).unwrap();
+
+        assert_eq!(audit_log.log_type, parser::LOG_TYPE_EXECVE);
+        assert_eq!(audit_log.program, "/bin/ls");
+        assert_eq!(audit_log.argc, 0);
+        assert_eq!(audit_log.args.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_line_with_invalid_format() {
+        let line = r#"invalid log line"#;
+        let audit_log_result = parser::AuditLog::parse_line(line);
+
+        assert!(audit_log_result.is_err());
+    }
 }

@@ -50,6 +50,7 @@
         packages = [
           pkgs.nil
           pkgs.sqlx-cli
+          pkgs.cargo-nextest
         ];
       };
     });
