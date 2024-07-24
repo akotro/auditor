@@ -23,8 +23,11 @@ async fn main() -> Result<()> {
 
     let db_pool = db_util::init_database().await?;
 
-    // let stream_position = parser::AuditLog::read_existing_logs(&file_path, db_pool.clone()).await?;
-    let stream_position = std::fs::File::open(file_path)?.stream_position()?;
+    let stream_position = if cfg!(debug_assertions) {
+        parser::AuditLog::read_existing_logs(&file_path, db_pool.clone()).await?
+    } else {
+        std::fs::File::open(file_path)?.stream_position()?
+    };
 
     let path = file_path
         .parent()

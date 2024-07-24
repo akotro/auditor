@@ -114,8 +114,6 @@ impl AuditLog {
         let timestamp = Self::parse_timestamp(timestamp_str)
             .context(format!("Invalid timestamp: {}", timestamp_str))?;
 
-        println!("parts: {parts:#?}");
-
         let mut program = String::new();
         let mut args = Vec::new();
         let mut argc = 0;
