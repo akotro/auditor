@@ -6,7 +6,7 @@ pub mod watcher;
 
 use anyhow::{Context, Result};
 use dotenvy::dotenv;
-use std::{env, io::Seek, path::Path};
+use std::{env, io::Seek, path::PathBuf};
 
 #[actix_rt::main]
 async fn main() -> Result<()> {
@@ -19,19 +19,22 @@ async fn main() -> Result<()> {
     let file_path = std::env::args()
         .nth(1)
         .expect("Argument 1 needs to be the log file path");
-    let file_path = Path::new(&file_path);
+    let file_path = PathBuf::from(&file_path);
 
     let db_pool = db_util::init_database().await?;
 
     // let stream_position = parser::AuditLog::read_existing_logs(&file_path, db_pool.clone()).await?;
-    let stream_position = std::fs::File::open(file_path)?.stream_position()?;
+    let stream_position = std::fs::File::open(&file_path)?.stream_position()?;
 
     let path = file_path
         .parent()
-        .context(format!("ERROR: Could not get parent of {file_path:?}"))?;
+        .context(format!("ERROR: Could not get parent of {file_path:?}"))?
+        .to_path_buf();
 
-    let server = server::run_server(port, db_pool.clone());
-    let watcher = watcher::async_watch(path, stream_position, db_pool.clone());
+    let server_db_pool = db_pool.clone();
+    let server = tokio::spawn(server::run_server(port, server_db_pool).await.unwrap());
+    let watcher_db_pool = db_pool.clone();
+    let watcher = tokio::spawn(watcher::async_watch(path, stream_position, watcher_db_pool));
 
     tokio::select! {
         res = server => {

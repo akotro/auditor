@@ -99,5 +99,7 @@ pub async fn async_watch<P: AsRef<Path>>(
         }
     }
 
+    println!("INFO: Stopping watcher");
+
     Ok(())
 }

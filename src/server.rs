@@ -54,7 +54,10 @@ async fn clear_audit_logs(pool: web::Data<sqlx::SqlitePool>) -> HttpResponse {
     HttpResponse::Ok().body("Audit logs older than 2 weeks cleared successfully")
 }
 
-pub async fn run_server(port: u32, db_pool: sqlx::Pool<sqlx::Sqlite>) -> std::io::Result<()> {
+pub async fn run_server(
+    port: u32,
+    db_pool: sqlx::Pool<sqlx::Sqlite>,
+) -> anyhow::Result<actix_web::dev::Server> {
     env_logger::init_from_env(Env::default().default_filter_or("debug"));
 
     let mut static_dir = env::current_exe()
@@ -68,7 +71,7 @@ pub async fn run_server(port: u32, db_pool: sqlx::Pool<sqlx::Sqlite>) -> std::io
 
     println!("INFO: Starting server");
 
-    HttpServer::new(move || {
+    Ok(HttpServer::new(move || {
         App::new()
             .wrap(Logger::new(
                 "%a \"%r\" %s %b %D \"%{Referer}i\" \"%{User-Agent}i\" %U %{r}a",
@@ -84,6 +87,5 @@ pub async fn run_server(port: u32, db_pool: sqlx::Pool<sqlx::Sqlite>) -> std::io
             .default_service(web::route().to(HttpResponse::NotFound))
     })
     .bind(format!("127.0.0.1:{port}"))?
-    .run()
-    .await
+    .run())
 }
